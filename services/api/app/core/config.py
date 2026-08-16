@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     disease_model_path: str | None = Field(None, alias="DISEASE_MODEL_PATH")
     disease_model_type: str = Field("yolo", alias="DISEASE_MODEL_TYPE")
     yield_model_path: str | None = Field(None, alias="YIELD_MODEL_PATH")
+    openai_api_key: str | None = Field(None, alias="OPENAI_API_KEY")
 
     firebase_credentials_json: str | None = Field(None, alias="FIREBASE_CREDENTIALS_JSON")
     smtp_host: str | None = Field(None, alias="SMTP_HOST")

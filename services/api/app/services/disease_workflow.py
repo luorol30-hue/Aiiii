@@ -165,5 +165,6 @@ class DiseaseDetectionWorkflow:
             state.get("weather"),
             state.get("soil"),
             state.get("yield_impact"),
+            raw_prediction=state["prediction"].raw_prediction,
         )
         return {"severity": severity, "recommendation": recommendation}
