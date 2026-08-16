@@ -15,6 +15,26 @@ from app.core.errors import ExternalServiceNotConfigured, ExternalServiceUnavail
 _YOLO_MODEL_CACHE: dict[str, object] = {}
 _YIELD_MODEL_CACHE: dict[str, object] = {}
 
+AGRONOMY_VISION_PROMPT = (
+    "You are a leading expert agricultural botanist and certified plant pathologist.\n"
+    "Carefully analyze this uploaded farm crop, leaf, fruit, or tree photo.\n"
+    "Diagnose the specific condition: disease name, pest infestation, fungal/bacterial pathogen, or nutrient deficiency.\n"
+    "If the plant is completely healthy, indicate 'Healthy Plant (No Detected Disease)'.\n"
+    "Respond with a valid JSON object matching this exact schema:\n"
+    "{\n"
+    '  "disease_label": "Common Disease Name (Scientific Name or Pathogen)",\n'
+    '  "confidence": 0.95,\n'
+    '  "severity": "low" | "medium" | "high",\n'
+    '  "affected_area_pct": 20.0,\n'
+    '  "summary": "Detailed botanical description of observed symptoms, lesions, leaf spotting, or discolouration.",\n'
+    '  "actions": [\n'
+    '    "Specific biological, organic, or chemical treatment with dosage recommendations",\n'
+    '    "Immediate crop management, irrigation, or infected foliage removal step",\n'
+    '    "Long-term soil, fertilization, or preventative protocol for adjacent crops"\n'
+    '  ]\n'
+    "}"
+)
+
 
 @dataclass
 class DiseaseModelResult:
@@ -31,13 +51,25 @@ class DiseaseModel:
         self._model = None
 
     def predict(self, file: UploadFile) -> DiseaseModelResult:
-        # 1. First priority: Real-time OpenAI Vision Model (GPT-4o Vision)
-        if self.settings.openai_api_key:
-            openai_result = self._analyze_with_openai(file)
-            if openai_result:
-                return openai_result
+        # 1. Try Google Gemini Vision (100% Free Tier from Google AI Studio)
+        if self.settings.gemini_api_key:
+            gemini_res = self._analyze_with_gemini(file)
+            if gemini_res:
+                return gemini_res
 
-        # 2. Second priority: Custom trained YOLO artifact if present on disk
+        # 2. Try OpenAI Vision (GPT-4o / GPT-4o-mini)
+        if self.settings.openai_api_key:
+            openai_res = self._analyze_with_openai(file)
+            if openai_res:
+                return openai_res
+
+        # 3. Try Groq Vision (Llama 3.2 Vision)
+        if self.settings.groq_api_key:
+            groq_res = self._analyze_with_groq(file)
+            if groq_res:
+                return groq_res
+
+        # 4. Try local custom YOLO artifact if provided on disk
         if self.settings.disease_model_path and os.path.exists(self.settings.disease_model_path):
             if self.settings.disease_model_type.lower() != "yolo":
                 raise ExternalServiceNotConfigured(
@@ -85,18 +117,57 @@ class DiseaseModel:
                 raw_prediction={"boxes": boxes},
             )
 
-        # 3. Fallback baseline if no API key or weights are configured
-        return DiseaseModelResult(
-            model_name="farm-ai-baseline-v1",
-            disease_label="Early Blight (Alternaria solani)",
-            confidence=0.885,
-            boxes=[{"label": "Early Blight", "confidence": 0.885, "xyxy": [40.0, 40.0, 320.0, 320.0]}],
-            raw_prediction={
-                "model": "farm-ai-baseline",
-                "status": "active",
-                "boxes": [{"label": "Early Blight", "confidence": 0.885, "xyxy": [40.0, 40.0, 320.0, 320.0]}],
-            },
+        # 5. Clear error explaining which AI keys can be connected
+        if self.settings.openai_api_key or self.settings.gemini_api_key:
+            raise ExternalServiceUnavailable(
+                "Connected AI provider quota exceeded or failed. Please check your API key credits."
+            )
+
+        raise ExternalServiceNotConfigured(
+            "No AI Vision key configured. Please add GEMINI_API_KEY (free from aistudio.google.com) or OPENAI_API_KEY to Railway variables."
         )
+
+    def _analyze_with_gemini(self, file: UploadFile) -> DiseaseModelResult | None:
+        file.file.seek(0)
+        img_bytes = file.file.read()
+        file.file.seek(0)
+        b64_img = base64.b64encode(img_bytes).decode("utf-8")
+        mime = file.content_type or "image/jpeg"
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.settings.gemini_api_key}"
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": AGRONOMY_VISION_PROMPT},
+                        {"inline_data": {"mime_type": mime, "data": b64_img}},
+                    ]
+                }
+            ],
+            "generationConfig": {"response_mime_type": "application/json", "temperature": 0.1},
+        }
+
+        try:
+            with httpx.Client(timeout=35.0) as client:
+                res = client.post(url, json=payload)
+                if res.status_code == 200:
+                    data = res.json()
+                    raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                    parsed = json.loads(raw_text)
+                    disease_label = parsed.get("disease_label", "Plant Condition Identified")
+                    confidence = float(parsed.get("confidence", 0.95))
+                    return DiseaseModelResult(
+                        model_name="google-gemini-1.5-flash-vision",
+                        disease_label=disease_label,
+                        confidence=confidence,
+                        boxes=[{"label": disease_label, "confidence": confidence, "xyxy": [25.0, 25.0, 360.0, 360.0]}],
+                        raw_prediction=parsed,
+                    )
+                else:
+                    print(f"Gemini Vision API error ({res.status_code}): {res.text}")
+        except Exception as exc:
+            print(f"Gemini Vision request failed: {exc}")
+        return None
 
     def _analyze_with_openai(self, file: UploadFile) -> DiseaseModelResult | None:
         file.file.seek(0)
@@ -104,24 +175,6 @@ class DiseaseModel:
         file.file.seek(0)
         b64_img = base64.b64encode(img_bytes).decode("utf-8")
         mime = file.content_type or "image/jpeg"
-
-        prompt = (
-            "You are an expert agricultural botanist and plant pathologist.\n"
-            "Analyze this crop/leaf image carefully and diagnose any disease, pest damage, nutrient deficiency, or health state.\n"
-            "Respond strictly in JSON matching this schema:\n"
-            "{\n"
-            '  "disease_label": "Specific Disease Name or Healthy (Scientific Name)",\n'
-            '  "confidence": 0.94,\n'
-            '  "severity": "low" | "medium" | "high",\n'
-            '  "affected_area_pct": 18.5,\n'
-            '  "summary": "Detailed agronomic explanation of observed symptoms, pathogen, and leaf damage.",\n'
-            '  "actions": [\n'
-            '    "Immediate biological or chemical treatment recommendation",\n'
-            '    "Water, soil, or sanitation management step",\n'
-            '    "Preventative measure for surrounding crops"\n'
-            "  ]\n"
-            "}"
-        )
 
         try:
             with httpx.Client(timeout=35.0) as client:
@@ -138,7 +191,7 @@ class DiseaseModel:
                             {
                                 "role": "user",
                                 "content": [
-                                    {"type": "text", "text": prompt},
+                                    {"type": "text", "text": AGRONOMY_VISION_PROMPT},
                                     {
                                         "type": "image_url",
                                         "image_url": {"url": f"data:{mime};base64,{b64_img}"},
@@ -154,7 +207,7 @@ class DiseaseModel:
                     content = data["choices"][0]["message"]["content"]
                     parsed = json.loads(content)
                     disease_label = parsed.get("disease_label", "Plant Condition Identified")
-                    confidence = float(parsed.get("confidence", 0.92))
+                    confidence = float(parsed.get("confidence", 0.94))
                     return DiseaseModelResult(
                         model_name="openai-gpt-4o-vision",
                         disease_label=disease_label,
@@ -166,6 +219,58 @@ class DiseaseModel:
                     print(f"OpenAI Vision API error ({res.status_code}): {res.text}")
         except Exception as exc:
             print(f"OpenAI Vision request failed: {exc}")
+        return None
+
+    def _analyze_with_groq(self, file: UploadFile) -> DiseaseModelResult | None:
+        file.file.seek(0)
+        img_bytes = file.file.read()
+        file.file.seek(0)
+        b64_img = base64.b64encode(img_bytes).decode("utf-8")
+        mime = file.content_type or "image/jpeg"
+
+        try:
+            with httpx.Client(timeout=35.0) as client:
+                res = client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.settings.groq_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "llama-3.2-11b-vision-preview",
+                        "response_format": {"type": "json_object"},
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": AGRONOMY_VISION_PROMPT},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {"url": f"data:{mime};base64,{b64_img}"},
+                                    },
+                                ],
+                            }
+                        ],
+                        "temperature": 0.1,
+                    },
+                )
+                if res.status_code == 200:
+                    data = res.json()
+                    content = data["choices"][0]["message"]["content"]
+                    parsed = json.loads(content)
+                    disease_label = parsed.get("disease_label", "Plant Condition Identified")
+                    confidence = float(parsed.get("confidence", 0.90))
+                    return DiseaseModelResult(
+                        model_name="groq-llama-3.2-vision",
+                        disease_label=disease_label,
+                        confidence=confidence,
+                        boxes=[{"label": disease_label, "confidence": confidence, "xyxy": [30.0, 30.0, 350.0, 350.0]}],
+                        raw_prediction=parsed,
+                    )
+                else:
+                    print(f"Groq Vision API error ({res.status_code}): {res.text}")
+        except Exception as exc:
+            print(f"Groq Vision request failed: {exc}")
         return None
 
     def _load_yolo(self):
@@ -256,9 +361,9 @@ class RecommendationEngine:
     ) -> tuple[str, dict]:
         affected = float(affected_area_pct or 0)
         
-        # Check if OpenAI returned structured severity/summary/actions
-        openai_data = raw_prediction if isinstance(raw_prediction, dict) else {}
-        severity = openai_data.get("severity")
+        # Check if AI returned structured severity/summary/actions
+        ai_data = raw_prediction if isinstance(raw_prediction, dict) else {}
+        severity = ai_data.get("severity")
         if not severity:
             if confidence >= 0.85 and affected >= 15:
                 severity = "high"
@@ -267,7 +372,7 @@ class RecommendationEngine:
             else:
                 severity = "low"
 
-        actions = list(openai_data.get("actions", []))
+        actions = list(ai_data.get("actions", []))
         if not actions:
             actions = [
                 "Confirm the diagnosis with an agronomist before applying restricted chemicals.",
@@ -282,7 +387,7 @@ class RecommendationEngine:
         if yield_impact:
             actions.append("Prioritize this block because the yield impact model flagged measurable risk.")
 
-        summary = openai_data.get("summary") or f"{disease_label} detected with {confidence:.2%} confidence."
+        summary = ai_data.get("summary") or f"{disease_label} detected with {confidence:.2%} confidence."
 
         return severity, {
             "summary": summary,
