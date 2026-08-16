@@ -3,7 +3,6 @@ import tempfile
 from dataclasses import dataclass
 from decimal import Decimal
 
-import cv2
 import numpy as np
 from fastapi import UploadFile
 
@@ -94,6 +93,11 @@ class DiseaseModel:
 
 class ImageAnalyzer:
     def affected_area_pct(self, file: UploadFile, boxes: list[dict]) -> Decimal | None:
+        try:
+            import cv2
+        except ImportError as exc:
+            raise ExternalServiceUnavailable("OpenCV runtime library missing") from exc
+
         image_bytes = np.frombuffer(file.file.read(), np.uint8)
         file.file.seek(0)
         image = cv2.imdecode(image_bytes, cv2.IMREAD_COLOR)
