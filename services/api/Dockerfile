@@ -5,12 +5,21 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
+# Install system dependencies for OpenCV (headless) and psycopg
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+  && apt-get install -y --no-install-recommends \
+       libglib2.0-0 \
+       libsm6 \
+       libxrender1 \
+       libxext6 \
+       libgl1-mesa-glx \
+       gcc \
+  && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt pyproject.toml ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+  && pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
