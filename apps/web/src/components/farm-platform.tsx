@@ -343,7 +343,8 @@ function FarmPanel({
     event.preventDefault();
     setSaving(true);
     setMessage(null);
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const payload = {
       name: String(form.get("name")),
       country: String(form.get("country")),
@@ -359,7 +360,7 @@ function FarmPanel({
         token,
         body: JSON.stringify(payload)
       });
-      event.currentTarget.reset();
+      formElement?.reset();
       onChanged();
     } catch (error) {
       setMessage(errorMessage(error));
@@ -443,7 +444,8 @@ function ScanPanel({
     event.preventDefault();
     setScanning(true);
     setMessage(null);
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const farmId = String(form.get("farm_id") ?? "");
     const farm = farms.find((item) => item.id === farmId);
     if (!farmId) {
@@ -458,7 +460,7 @@ function ScanPanel({
       const detection = await apiForm<Detection>("/api/v1/ai/disease-detections", form, token);
       onDetection(detection);
       onChanged();
-      event.currentTarget.reset();
+      formElement?.reset();
     } catch (error) {
       setMessage(errorMessage(error));
     } finally {
