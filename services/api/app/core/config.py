@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     database_url: str = Field(..., alias="DATABASE_URL")
     redis_url: str = Field(..., alias="REDIS_URL")
-    qdrant_url: str = Field(..., alias="QDRANT_URL")
+    qdrant_url: str | None = Field(None, alias="QDRANT_URL")
 
     jwt_secret: str = Field(..., alias="JWT_SECRET")
     jwt_algorithm: str = Field("HS256", alias="JWT_ALGORITHM")
@@ -29,11 +29,11 @@ class Settings(BaseSettings):
     sentinelhub_client_id: str | None = Field(None, alias="SENTINELHUB_CLIENT_ID")
     sentinelhub_client_secret: str | None = Field(None, alias="SENTINELHUB_CLIENT_SECRET")
 
-    s3_bucket: str = Field(..., alias="S3_BUCKET")
+    s3_bucket: str | None = Field(None, alias="S3_BUCKET")
     s3_region: str = Field("us-east-1", alias="S3_REGION")
     s3_endpoint_url: AnyHttpUrl | None = Field(None, alias="S3_ENDPOINT_URL")
-    s3_access_key_id: str = Field(..., alias="S3_ACCESS_KEY_ID")
-    s3_secret_access_key: str = Field(..., alias="S3_SECRET_ACCESS_KEY")
+    s3_access_key_id: str | None = Field(None, alias="S3_ACCESS_KEY_ID")
+    s3_secret_access_key: str | None = Field(None, alias="S3_SECRET_ACCESS_KEY")
     s3_public_base_url: AnyHttpUrl | None = Field(None, alias="S3_PUBLIC_BASE_URL")
 
     disease_model_path: str | None = Field(None, alias="DISEASE_MODEL_PATH")

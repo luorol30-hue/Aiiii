@@ -6,12 +6,16 @@ from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import UploadFile
 
 from app.core.config import Settings
-from app.core.errors import ExternalServiceUnavailable
+from app.core.errors import ExternalServiceNotConfigured, ExternalServiceUnavailable
 
 
 class ObjectStorage:
     def __init__(self, settings: Settings):
         self.settings = settings
+        if not settings.s3_bucket or not settings.s3_access_key_id or not settings.s3_secret_access_key:
+            raise ExternalServiceNotConfigured(
+                "S3 object storage is not configured. Set S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY."
+            )
         self.client = boto3.client(
             "s3",
             region_name=settings.s3_region,
