@@ -5,14 +5,11 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install system dependencies for OpenCV (headless) and psycopg
+# opencv-python-headless only needs libglib2.0-0 (no X11/GL required)
+# gcc is needed to compile psycopg binary extensions
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
        libglib2.0-0 \
-       libsm6 \
-       libxrender1 \
-       libxext6 \
-       libgl1-mesa-glx \
        gcc \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
