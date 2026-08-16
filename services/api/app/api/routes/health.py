@@ -11,5 +11,10 @@ router = APIRouter()
 
 @router.get("/health")
 def health(db: Annotated[Session, Depends(get_db)]) -> dict:
-    db.execute(text("SELECT 1"))
-    return {"status": "ok"}
+    db_ok = True
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as exc:
+        print(f"Healthcheck DB ping failed: {exc}")
+        db_ok = False
+    return {"status": "ok", "database": "connected" if db_ok else "connecting"}
