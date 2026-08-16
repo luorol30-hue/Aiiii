@@ -1,0 +1,18 @@
+# Normalize line endings to LF in the repository
+* text=auto eol=lf
+
+# Force binary for compiled artifacts
+*.pyc binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.pt binary
+*.pth binary
+*.onnx binary
